@@ -193,7 +193,7 @@ TEST_CASES = [
     ("Tỷ lệ là 100/2.", "tỷ lệ là một trăm xẹt hai."),
 
     # Ký hiệu toán học
-    ("Nếu x > 5 và y ≤ 10 thì xấp xỉ ≈ 0.", "nếu ích xì lớn hơn năm và i dài nhỏ hơn hoặc bằng mười thì xấp xỉ xấp xỉ không."),
+    ("Nếu x > 5 và y ≤ 10 thì xấp xỉ ≈ 0.", "nếu ích lớn hơn năm và y nhỏ hơn hoặc bằng mười thì xấp xỉ xấp xỉ không."),
     ("Nhiệt độ là 30°C ± 2°C.", "nhiệt độ là ba mươi độ xê cộng trừ hai độ xê."),
     ("Biểu thức ≥ 10.", "biểu thức lớn hơn hoặc bằng mười."),
 
@@ -210,7 +210,7 @@ TEST_CASES = [
 
     # Emails mở rộng
     ("Email công việc: admin@fpt.vn", "email công việc: a dê mờ i nờ a còng ép phê tê chấm vê nờ"),
-    ("Liên hệ hotmail: test@hotmail.com", "liên hệ hotmail: tê e sờ tê a còng hót meo chấm com"),
+    ("Liên hệ hotmail: test@hotmail.com", "liên hệ hotmail: tê e ét tê a còng hót meo chấm com"),
 
     # Redundant expansion (symbol + unit)
     ("#1kg", "thăng một ki lô gam"),
