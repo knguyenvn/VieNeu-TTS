@@ -67,6 +67,8 @@ def test_base_ref_phoneme_cache():
     class MockTTS(BaseVieneuTTS):
         def infer(self, text, **kwargs):
             return None
+        def infer_batch(self, texts, **kwargs):
+            return [self.infer(t, **kwargs) for t in texts]
 
     tts = MockTTS()
     ref_text = "Giọng đọc mẫu số 1"
