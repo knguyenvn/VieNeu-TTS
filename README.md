@@ -53,17 +53,6 @@ VieNeu-TTS delivers production-ready speech synthesis fully offline.
 
 > *For Intel arc gpu user, [read the Intel Arc GPU section below](#intel-arc).*
 
-> ⚡ **Quick Start**  
-> ℹ️ This is the fastest way to get started.  
-> For **streaming inference, SDK integration, Docker deployment, and advanced setups**, see the sections below.
-> ```bash
-> git clone https://github.com/pnnbao97/VieNeu-TTS.git
-> cd VieNeu-TTS
-> uv sync
-> uv run vieneu-web
-> ```
-> Open `http://127.0.0.1:7860` and start generating speech.
-
 ### Installation Steps
 1. **Clone the Repo:**
    ```bash
