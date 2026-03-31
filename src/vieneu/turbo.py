@@ -251,10 +251,10 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         final_wav = np.concatenate(all_wavs) if len(all_wavs) > 1 else all_wavs[0]
         return self._apply_watermark(final_wav)
 
-    def _format_turbo_prompt(self, phonemes: str, voice_id: int = 16) -> str:
+    def _format_turbo_prompt(self, phonemes: str) -> str:
         # Use dynamic speaker token based on selected voice
         return (
-            f"<|speaker_{voice_id}|>"
+            f"<|speaker_16|>"
             f"<|TEXT_PROMPT_START|>{phonemes}<|TEXT_PROMPT_END|>"
             f"<|SPEECH_GENERATION_START|>"
         )
