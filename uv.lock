@@ -4318,16 +4318,16 @@ wheels = [
 
 [[package]]
 name = "sea-g2p"
-version = "0.6.12"
+version = "0.7.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7e/e3/f39f4a663e34b5a736712caf68e6afc289c110985627b522276bb480f1c6/sea_g2p-0.6.12.tar.gz", hash = "sha256:144937976084f4834af74bda9ead066b3cf2a71227476f908354cb533c028ea0", size = 19996368, upload-time = "2026-03-19T03:54:45.602Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/27/6cb64dd049e8ae5e95b414698501332facbccfc800a2b70ab2ba320aeba7/sea_g2p-0.7.5.tar.gz", hash = "sha256:15a0c52570858b4921c37d701a0953222f086c1d60da74e9fb92ba7e246ea8be", size = 20050359, upload-time = "2026-03-29T14:19:33.829Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/a8/f725e9e5e7e6431db2fbcbb3fc9127db95ca2bbce0cf3a6ea9b2042594f4/sea_g2p-0.6.12-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c356edd471f91d4f43b226eac8edc43e65e6b3be72046150494b68f5950a7034", size = 21319207, upload-time = "2026-03-19T03:54:27.445Z" },
-    { url = "https://files.pythonhosted.org/packages/11/0e/b17d140d23cda24f68ad3e90ae33a0c03bba97b10f7c13c5449550f7010b/sea_g2p-0.6.12-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:fda6eabfa541d2104fa5174fbf95295e4bd0e4adfd332c87438911d72642ac07", size = 21263298, upload-time = "2026-03-19T03:54:30.291Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/4c/ba1aa894f2ba953280d8fb4887ad72f5441695bc64195bdec035ecf4d4c8/sea_g2p-0.6.12-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9b380db2eb089fa7c4a1b47bb1e6afea401434a643132eb65362c689bd6695ea", size = 21408579, upload-time = "2026-03-19T03:54:32.74Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/8f/a95f688ce4412d8b2862984a16d3dea60ecc360b8f990683a22b1384adbb/sea_g2p-0.6.12-cp310-abi3-win32.whl", hash = "sha256:df967d67996636830a21af5af7748bb7805fc3c5788f2cfa013eee84d57255e3", size = 21033512, upload-time = "2026-03-19T03:54:34.998Z" },
-    { url = "https://files.pythonhosted.org/packages/21/a6/0d86442b9e1a2934a0439bfd8eb1bdbee0ddd888984fae0757d1dfe4ba44/sea_g2p-0.6.12-cp310-abi3-win_amd64.whl", hash = "sha256:955a8789f53fbe3faab08cc7da186622fabc5b72905c4697d8a87eb7991de3a9", size = 21147225, upload-time = "2026-03-19T03:54:37.166Z" },
-    { url = "https://files.pythonhosted.org/packages/03/ae/fa02a600aa8cd2397689df7a4d59be66113c446f5fbfcf722cfdf5b785eb/sea_g2p-0.6.12-pp310-pypy310_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d28789638064c277219e2827d9b5043ed026d002c4468de0ebda783d03d79c79", size = 21407950, upload-time = "2026-03-19T03:54:41.649Z" },
+    { url = "https://files.pythonhosted.org/packages/45/d8/49950a41df6b4ddff2e728ff4e5f3766131a96fc24ac5c51b53c434ca46c/sea_g2p-0.7.5-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:dde8a4a5e391860e830e9ca07b74d76b8b6ba287672c091fab0b1758a06e1284", size = 21372342, upload-time = "2026-03-29T14:19:14.936Z" },
+    { url = "https://files.pythonhosted.org/packages/62/85/03dd243aecc708790f2019b04bc16ddea4942e98fec638283156d940a8c3/sea_g2p-0.7.5-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:99c258534666dd0dbe75229e7fb1e52cbcf0b0a0aa267b4b1f19c35e493096ca", size = 21318662, upload-time = "2026-03-29T14:19:17.86Z" },
+    { url = "https://files.pythonhosted.org/packages/74/9b/6c2a9aa8b0f560a0179e11763d02ad0306b593cd58fbf14406c2624e7745/sea_g2p-0.7.5-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ae6dc27326e6fd978a4c18614d5a57fd85a65b06941042365f6259ea00cd102b", size = 21470484, upload-time = "2026-03-29T14:19:20.29Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/90/17ede4f74794f74109b1d0c9463eed7846c2196cc8703abe7a61f2c25c95/sea_g2p-0.7.5-cp310-abi3-win32.whl", hash = "sha256:3716f078e199b8b67b8c5cc535ab77cbed025848b7b7a4bf16b22cb5d478fdb7", size = 21093572, upload-time = "2026-03-29T14:19:22.426Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/3a/d427e606781f3a1d526d72ac0d2edf4cb8acd7c9567566e3565cddc895ba/sea_g2p-0.7.5-cp310-abi3-win_amd64.whl", hash = "sha256:032d949afa49eb4c447be2dab8fe67b1c72f87bfdc584698f21af85acb8fa019", size = 21204730, upload-time = "2026-03-29T14:19:24.651Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/a2/d84fd9d746c096e8dc938fc0549bb32b2ecb5526d7d49d38029311be6f8c/sea_g2p-0.7.5-pp310-pypy310_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:43be4c4c5479811ea48b51a81c27da6205207e92c520c5cf4fcb588cbd4c9e0e", size = 21469777, upload-time = "2026-03-29T14:19:28.81Z" },
 ]
 
 [[package]]
@@ -5133,20 +5133,18 @@ name = "vieneu"
 version = "1.2.9"
 source = { editable = "." }
 dependencies = [
-    { name = "datasets" },
-    { name = "librosa" },
+    { name = "gradio" },
     { name = "llama-cpp-python", version = "0.3.16", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/metal/" }, marker = "sys_platform == 'darwin'" },
     { name = "llama-cpp-python", version = "0.3.16", source = { registry = "https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/" }, marker = "sys_platform == 'win32'" },
     { name = "llama-cpp-python", version = "0.3.16", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' and sys_platform != 'win32'" },
-    { name = "neucodec" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "onnxruntime" },
     { name = "perth" },
+    { name = "pyyaml" },
     { name = "requests" },
     { name = "sea-g2p" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "soundfile" },
 ]
 
 [package.optional-dependencies]
@@ -5155,6 +5153,11 @@ gpu = [
     { name = "lmdeploy", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version != '3.12.*' and sys_platform == 'linux') or (python_full_version != '3.12.*' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')" },
     { name = "lmdeploy", version = "0.11.0", source = { url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-manylinux2014_x86_64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
     { name = "lmdeploy", version = "0.11.0", source = { url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "neucodec" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
+    { name = "torchaudio", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
     { name = "transformers", marker = "sys_platform == 'darwin'" },
     { name = "triton", marker = "sys_platform == 'linux'" },
     { name = "triton-windows", marker = "sys_platform == 'win32'" },
@@ -5165,12 +5168,19 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
-web = [
+gpu = [
     { name = "accelerate", marker = "sys_platform == 'darwin'" },
-    { name = "gradio" },
+    { name = "datasets" },
+    { name = "librosa" },
     { name = "lmdeploy", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version != '3.12.*' and sys_platform == 'linux') or (python_full_version != '3.12.*' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')" },
     { name = "lmdeploy", version = "0.11.0", source = { url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-manylinux2014_x86_64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
     { name = "lmdeploy", version = "0.11.0", source = { url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "neucodec" },
+    { name = "perth" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform != 'darwin'" },
+    { name = "torchaudio", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
     { name = "trafilatura" },
     { name = "transformers", marker = "sys_platform == 'darwin'" },
     { name = "triton", marker = "sys_platform == 'linux'" },
@@ -5180,23 +5190,25 @@ web = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "sys_platform == 'darwin' and extra == 'gpu'" },
-    { name = "datasets", specifier = ">=3.2.0" },
-    { name = "librosa", specifier = ">=0.11.0" },
+    { name = "gradio", specifier = ">=5.49.1" },
     { name = "llama-cpp-python", marker = "sys_platform != 'darwin' and sys_platform != 'win32'", specifier = "==0.3.16", index = "https://pypi.org/simple" },
     { name = "llama-cpp-python", marker = "sys_platform == 'darwin'", specifier = "==0.3.16", index = "https://abetlen.github.io/llama-cpp-python/whl/metal/" },
     { name = "llama-cpp-python", marker = "sys_platform == 'win32'", specifier = "==0.3.16", index = "https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/" },
     { name = "lmdeploy", marker = "(python_full_version != '3.12.*' and sys_platform == 'linux' and extra == 'gpu') or (python_full_version != '3.12.*' and sys_platform == 'win32' and extra == 'gpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'gpu')" },
     { name = "lmdeploy", marker = "python_full_version == '3.12.*' and sys_platform == 'linux' and extra == 'gpu'", url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-manylinux2014_x86_64.whl" },
     { name = "lmdeploy", marker = "python_full_version == '3.12.*' and sys_platform == 'win32' and extra == 'gpu'", url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-win_amd64.whl" },
-    { name = "neucodec", specifier = ">=0.0.4" },
+    { name = "neucodec", marker = "extra == 'gpu'", specifier = ">=0.0.4" },
+    { name = "numpy" },
     { name = "onnxruntime", specifier = ">=1.23.2" },
     { name = "perth", specifier = ">=0.2.0" },
+    { name = "pyyaml" },
     { name = "requests" },
-    { name = "sea-g2p", specifier = ">=0.6.12" },
-    { name = "torch", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "sys_platform == 'darwin'", index = "https://pypi.org/simple" },
-    { name = "torchaudio", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchaudio", marker = "sys_platform == 'darwin'", index = "https://pypi.org/simple" },
+    { name = "sea-g2p", specifier = ">=0.7.5" },
+    { name = "soundfile" },
+    { name = "torch", marker = "sys_platform == 'darwin' and extra == 'gpu'", index = "https://pypi.org/simple" },
+    { name = "torch", marker = "sys_platform != 'darwin' and extra == 'gpu'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchaudio", marker = "sys_platform == 'darwin' and extra == 'gpu'", index = "https://pypi.org/simple" },
+    { name = "torchaudio", marker = "sys_platform != 'darwin' and extra == 'gpu'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "transformers", marker = "sys_platform == 'darwin' and extra == 'gpu'" },
     { name = "triton", marker = "sys_platform == 'linux' and extra == 'gpu'" },
     { name = "triton-windows", marker = "sys_platform == 'win32' and extra == 'gpu'" },
@@ -5208,12 +5220,19 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
-web = [
+gpu = [
     { name = "accelerate", marker = "sys_platform == 'darwin'" },
-    { name = "gradio", specifier = ">=5.49.1" },
+    { name = "datasets", specifier = ">=3.2.0" },
+    { name = "librosa", specifier = ">=0.11.0" },
     { name = "lmdeploy", marker = "(python_full_version != '3.12.*' and sys_platform == 'linux') or (python_full_version != '3.12.*' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')" },
     { name = "lmdeploy", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-manylinux2014_x86_64.whl" },
     { name = "lmdeploy", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", url = "https://github.com/InternLM/lmdeploy/releases/download/v0.11.0/lmdeploy-0.11.0+cu128-cp312-cp312-win_amd64.whl" },
+    { name = "neucodec", specifier = ">=0.0.4" },
+    { name = "perth", specifier = ">=0.2.0" },
+    { name = "torch", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "sys_platform == 'darwin'", index = "https://pypi.org/simple" },
+    { name = "torchaudio", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchaudio", marker = "sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "trafilatura", specifier = ">=2.0.0" },
     { name = "transformers", marker = "sys_platform == 'darwin'" },
     { name = "triton", marker = "sys_platform == 'linux'" },
