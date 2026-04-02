@@ -1183,7 +1183,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             with gr.Row():
                 backbone_select = gr.Dropdown(
                     list(BACKBONE_CONFIGS.keys()) + ["Custom Model"], 
-                    value="VieNeu-TTS-v2-Turbo (GPU)" if "VieNeu-TTS-v2-Turbo (GPU)" in BACKBONE_CONFIGS else ("VieNeu-TTS-v2-Turbo (CPU)" if "VieNeu-TTS-v2-Turbo (CPU)" in BACKBONE_CONFIGS else list(BACKBONE_CONFIGS.keys())[0]), 
+                    value="VieNeu-TTS (GPU)" if "VieNeu-TTS (GPU)" in BACKBONE_CONFIGS else ("VieNeu-TTS (CPU)" if "VieNeu-TTS (CPU)" in BACKBONE_CONFIGS else list(BACKBONE_CONFIGS.keys())[0]), 
                     label="🦜 Backbone"
                 )
                 codec_select = gr.Dropdown(
@@ -1245,7 +1245,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     <div class="warning-banner-item">
                         <strong>🐆 Hệ máy GPU</strong>
                         <div class="warning-banner-content">
-                            Phiên bản <b>VieNeu-TTS-v2 Turbo</b> đã hỗ trợ song ngữ Anh Việt (code-switching) mượt mà và tốc độ rất nhanh - tuy nhiên vẫn đang trong quá trình thử nghiệm. Trong trường hợp bạn cần sự ổn định, hãy sử dụng version 1, để có độ chính xác cao nhất và giọng đọc tự nhiên nhất, hãy sử dụng <b>VieNeu-TTS (Mặc định - GPU)</b>. Chọn <b>VieNeu-TTS-0.3B (GPU)</b> để tăng tốc độ lên gấp 2 lần (độ chính xác đạt khoảng 80% so với bản gốc). 
+                            Phiên bản <b>VieNeu-TTS-v2 Turbo</b> đã hỗ trợ song ngữ Anh Việt (code-switching) mượt mà và tốc độ rất nhanh - tuy nhiên vẫn đang trong quá trình thử nghiệm nên còn nhiều lỗi. Trong trường hợp bạn cần sự ổn định, hãy sử dụng version 1, để có độ chính xác cao nhất và giọng đọc tự nhiên nhất, hãy sử dụng <b>VieNeu-TTS (Mặc định - GPU)</b>. Chọn <b>VieNeu-TTS-0.3B (GPU)</b> để tăng tốc độ lên gấp 2 lần (độ chính xác đạt khoảng 80% so với bản gốc). 
                         </div>
                     </div>
                     <div class="warning-banner-item" style="background: #dcfce7; border-color: #86efac;">
