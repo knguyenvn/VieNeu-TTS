@@ -5,7 +5,7 @@ import json
 import numpy as np
 import logging
 from huggingface_hub import hf_hub_download
-from sea_g2p import Normalizer
+from vieneu_utils.phonemize_text import TechAwareNormalizer
 
 # Configure logging
 logger = logging.getLogger("Vieneu")
@@ -24,7 +24,7 @@ class BaseVieneuTTS(ABC):
         self.assets_dir = Path(__file__).parent / "assets"
         self._preset_voices: Dict[str, Any] = {}
         self._default_voice: Optional[str] = None
-        self.normalizer = Normalizer()
+        self.normalizer = TechAwareNormalizer()
         self._ref_phoneme_cache: Dict[str, str] = {}
 
         # Watermarker placeholder

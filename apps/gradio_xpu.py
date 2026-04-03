@@ -23,7 +23,7 @@ import gc
 
 from vieneu.core_xpu import XPUVieNeuTTS
 from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks, env_bool
-from sea_g2p import Normalizer
+from vieneu_utils.phonemize_text import TechAwareNormalizer
 from functools import lru_cache
 
 try:
@@ -64,7 +64,7 @@ current_codec = None
 model_loaded = False
 
 # Normalizer (module-level singleton)
-_text_normalizer = Normalizer()
+_text_normalizer = TechAwareNormalizer()
 
 def get_available_devices() -> list[str]:
     """Chỉ trả về XPU cho phiên bản này."""

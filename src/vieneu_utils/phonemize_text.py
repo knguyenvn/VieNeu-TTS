@@ -6,6 +6,7 @@ which provides a unified, tested, and maintained Vietnamese G2P pipeline.
 import functools
 import logging
 from sea_g2p import SEAPipeline, G2P, Normalizer
+from .tech_text import rewrite_mixed_tech_text
 
 logger = logging.getLogger("Vieneu.Phonemizer")
 
@@ -15,6 +16,11 @@ logger = logging.getLogger("Vieneu.Phonemizer")
 _pipeline: SEAPipeline = None
 _g2p: G2P = None
 _normalizer: Normalizer = None
+
+
+class TechAwareNormalizer:
+    def normalize(self, text: str) -> str:
+        return normalize_text(text)
 
 def _get_pipeline() -> SEAPipeline:
     global _pipeline
@@ -41,12 +47,17 @@ def _get_normalizer() -> Normalizer:
 @functools.lru_cache(maxsize=1024)
 def _phonemize_cached(text: str) -> str:
     """Cached single-text phonemization (normalize + G2P)."""
-    return _get_pipeline().run(text)
+    return _get_pipeline().run(rewrite_mixed_tech_text(text))
 
 
 def phonemize_text(text: str) -> str:
     """Normalize and phonemize a single Vietnamese/bilingual text string."""
     return _phonemize_cached(text)
+
+
+def normalize_text(text: str) -> str:
+    """Rewrite common tech terms before the Vietnamese normalizer runs."""
+    return _get_normalizer().normalize(rewrite_mixed_tech_text(text))
 
 
 def phonemize_batch(
@@ -68,15 +79,15 @@ def phonemize_batch(
     if not texts:
         return []
 
+    rewritten = [rewrite_mixed_tech_text(text) for text in texts]
     g2p = _get_g2p()
 
     if skip_normalize:
         # Texts are pre-normalized — only run the G2P layer
-        return g2p.phonemize_batch(texts, phoneme_dict=phoneme_dict)
+        return g2p.phonemize_batch(rewritten, phoneme_dict=phoneme_dict)
     else:
         # Full pipeline: normalize then G2P
-        normalizer = _get_normalizer()
-        normalized = [normalizer.normalize(t) for t in texts]
+        normalized = [normalize_text(t) for t in texts]
         return g2p.phonemize_batch(normalized, phoneme_dict=phoneme_dict)
 
 
@@ -97,7 +108,7 @@ def phonemize_with_dict(
             [text], skip_normalize=skip_normalize, phoneme_dict=phoneme_dict
         )[0]
     if skip_normalize:
-        return _get_g2p().phonemize_batch([text])[0]
+        return _get_g2p().phonemize_batch([rewrite_mixed_tech_text(text)])[0]
     return _phonemize_cached(text)
 
 

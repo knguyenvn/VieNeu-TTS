@@ -3,6 +3,7 @@ import numpy as np
 import logging
 from typing import Optional, List, Any, Generator
 from pathlib import Path
+from huggingface_hub import hf_hub_download
 from .base import BaseVieneuTTS
 from vieneu_utils.phonemize_text import phonemize_text
 from vieneu_utils.core_utils import split_into_chunks_v2, get_silence_duration_v2
@@ -10,6 +11,36 @@ from tqdm import tqdm
 import sys
 
 logger = logging.getLogger("Vieneu.Turbo")
+
+
+def _resolve_model_asset(repo_or_path: str, filename: str, hf_token: Optional[str] = None) -> str:
+    path_obj = Path(repo_or_path)
+    if path_obj.exists():
+        if path_obj.is_dir():
+            candidate = path_obj / filename
+            if candidate.exists():
+                return str(candidate)
+        else:
+            return str(path_obj)
+
+    try:
+        return hf_hub_download(repo_id=repo_or_path, filename=filename, token=hf_token)
+    except Exception as first_error:
+        logger.warning(f"Network check failed for {filename}. Trying local cache...")
+        try:
+            return hf_hub_download(
+                repo_id=repo_or_path,
+                filename=filename,
+                token=hf_token,
+                local_files_only=True,
+            )
+        except Exception:
+            filename_path = Path(filename)
+            if filename_path.exists():
+                return str(filename_path)
+            raise FileNotFoundError(
+                f"Neither repo '{repo_or_path}' nor local asset '{filename}' could be resolved."
+            ) from first_error
 
 class TurboGPUVieNeuTTS(BaseVieneuTTS):
     def __init__(
@@ -127,13 +158,7 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
 
     def _load_decoder(self, decoder_repo, decoder_filename, device, hf_token=None):
         import onnxruntime as ort
-        if os.path.exists(decoder_repo) and not os.path.isdir(decoder_repo):
-            decoder_path = decoder_repo
-        else:
-            from huggingface_hub import hf_hub_download
-            decoder_path = hf_hub_download(
-                repo_id=decoder_repo, filename=decoder_filename, token=hf_token
-            )
+        decoder_path = _resolve_model_asset(decoder_repo, decoder_filename, hf_token)
         
         providers = self._get_onnx_providers(device)
         logger.info(f"⏳ Loading decoder ONNX (providers: {providers}) from: {decoder_repo}...")
@@ -142,17 +167,11 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
 
     def _load_encoder(self, encoder_repo, encoder_filename, device, hf_token=None):
         import onnxruntime as ort
-        if os.path.exists(encoder_repo) and not os.path.isdir(encoder_repo):
-            encoder_path = encoder_repo
-        else:
-            from huggingface_hub import hf_hub_download
-            try:
-                encoder_path = hf_hub_download(
-                    repo_id=encoder_repo, filename=encoder_filename, token=hf_token
-                )
-            except Exception:
-                logger.warning("Speaker encoder not found for Turbo.")
-                return
+        try:
+            encoder_path = _resolve_model_asset(encoder_repo, encoder_filename, hf_token)
+        except FileNotFoundError:
+            logger.warning("Speaker encoder not found for Turbo.")
+            return
 
         providers = self._get_onnx_providers(device)
         logger.info(f"⏳ Loading speaker encoder ONNX from: {encoder_repo}...")
@@ -440,20 +459,8 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         except ImportError:
             raise ImportError("llama-cpp-python is required for Turbo mode.")
 
-        if os.path.exists(backbone_repo):
-            model_path = backbone_repo
-        else:
-            from huggingface_hub import hf_hub_download
-            logger.info(f"⏳ Downloading/Loading Turbo GGUF from: {backbone_repo}...")
-            try:
-                model_path = hf_hub_download(
-                    repo_id=backbone_repo, filename=backbone_filename, token=hf_token
-                )
-            except Exception:
-                if os.path.exists(backbone_filename):
-                    model_path = backbone_filename
-                else:
-                    raise FileNotFoundError(f"Neither repo '{backbone_repo}' nor '{backbone_filename}' found.")
+        logger.info(f"⏳ Downloading/Loading Turbo GGUF from: {backbone_repo}...")
+        model_path = _resolve_model_asset(backbone_repo, backbone_filename, hf_token)
 
         # 'cuda' -> offload all layers to GPU; 'cpu' -> CPU only
         use_gpu = device == "cuda"
@@ -487,19 +494,7 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         except ImportError:
             raise ImportError("onnxruntime is required for Turbo mode.")
 
-        if os.path.exists(decoder_repo):
-            decoder_path = decoder_repo
-        else:
-            from huggingface_hub import hf_hub_download
-            try:
-                decoder_path = hf_hub_download(
-                    repo_id=decoder_repo, filename=decoder_filename, token=hf_token
-                )
-            except Exception:
-                if os.path.exists(decoder_filename):
-                    decoder_path = decoder_filename
-                else:
-                    raise FileNotFoundError(f"Neither repo '{decoder_repo}' nor '{decoder_filename}' found.")
+        decoder_path = _resolve_model_asset(decoder_repo, decoder_filename, hf_token)
 
         providers = self._get_onnx_providers(device)
         logger.info(f"Loading decoder ONNX on providers: {providers}")
@@ -511,20 +506,11 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         except ImportError:
             return
 
-        if os.path.exists(encoder_repo):
-            encoder_path = encoder_repo
-        else:
-            from huggingface_hub import hf_hub_download
-            try:
-                encoder_path = hf_hub_download(
-                    repo_id=encoder_repo, filename=encoder_filename, token=hf_token
-                )
-            except Exception:
-                if os.path.exists(encoder_filename):
-                    encoder_path = encoder_filename
-                else:
-                    logger.warning("Speaker encoder not found, voice cloning might be limited in Turbo mode.")
-                    return
+        try:
+            encoder_path = _resolve_model_asset(encoder_repo, encoder_filename, hf_token)
+        except FileNotFoundError:
+            logger.warning("Speaker encoder not found, voice cloning might be limited in Turbo mode.")
+            return
 
         providers = self._get_onnx_providers(device)
         logger.info(f"Loading encoder ONNX on providers: {providers}")

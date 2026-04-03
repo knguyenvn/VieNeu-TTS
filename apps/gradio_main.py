@@ -11,8 +11,7 @@ import queue
 import threading
 import yaml
 from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks, env_bool, split_into_chunks_v2, get_silence_duration_v2
-from vieneu_utils.phonemize_text import phonemize_with_dict
-from sea_g2p import Normalizer
+from vieneu_utils.phonemize_text import phonemize_with_dict, TechAwareNormalizer
 from functools import lru_cache
 import gc
 
@@ -91,7 +90,7 @@ model_loaded = False
 using_lmdeploy = False
 
 # Normalizer (module-level singleton)
-_text_normalizer = Normalizer()
+_text_normalizer = TechAwareNormalizer()
 
 # Cache for reference texts
 _ref_text_cache = {}
