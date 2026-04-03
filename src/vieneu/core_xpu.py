@@ -149,19 +149,32 @@ class XPUVieNeuTTS(VieNeuTTS):
             temperature: float = 1.0, 
             top_k: int = 50,
             skip_normalize: bool = False,
-            apply_watermark: bool = True
+            apply_watermark: bool = True,
+            acronym_mode: Optional[str] = None,
+            narration_mode: bool = False,
+            narration_strength: str = "balanced",
             ) -> list[np.ndarray]:
         """
         Thực hiện inference theo batch trên XPU sử dụng thuần PyTorch.
         """
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
 
-        if not skip_normalize:
-            texts = [self.normalizer.normalize(t) for t in texts]
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        texts = self._normalize_texts(
+            texts,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
         # Pre-phonemize all inputs for performance
-        ref_phonemes = self.get_ref_phonemes(ref_text)
-        chunk_phonemes = phonemize_batch(texts, skip_normalize=True)
+        ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+        chunk_phonemes = phonemize_batch(texts, skip_normalize=True, skip_adaptation=True)
 
         # Prepare prompt for each chunk in batch
         batch_prompt_ids = []

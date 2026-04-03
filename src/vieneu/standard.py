@@ -9,7 +9,8 @@ import logging
 from .base import BaseVieneuTTS
 from .utils import extract_speech_ids, _linear_overlap_add
 from vieneu_utils.phonemize_text import phonemize_with_dict, phonemize_batch
-from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks
+from vieneu_utils.core_utils import split_text_into_chunks, split_text_into_chunks_with_pauses, join_audio_chunks
+from vieneu_utils.text_adaptation import get_narration_profile
 
 logger = logging.getLogger("Vieneu.Standard")
 
@@ -175,20 +176,52 @@ class VieNeuTTS(BaseVieneuTTS):
             logger.error(f"   ⚠️ Error during unload: {e}")
             return False
 
-    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> np.ndarray:
+    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> np.ndarray:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        pause_plan = None
+        effective_crossfade = crossfade_p
+        if profile is not None:
+            planned_chunks = split_text_into_chunks_with_pauses(
+                text,
+                max_chars=effective_max_chars,
+                continuation_pause=profile.continuation_pause,
+                sentence_pause=max(silence_p, profile.sentence_pause),
+                strong_pause=max(silence_p * 1.5, profile.strong_pause),
+                paragraph_pause=max(silence_p * 2.0, profile.paragraph_pause),
+            )
+            chunks = [chunk.text for chunk in planned_chunks]
+            pause_plan = [chunk.pause_after for chunk in planned_chunks[:-1]]
+            effective_crossfade = max(crossfade_p, profile.crossfade)
+        else:
+            chunks = split_text_into_chunks(text, max_chars=effective_max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
 
         if len(chunks) == 1:
-            ref_phonemes = self.get_ref_phonemes(ref_text)
-            phonemes = phonemize_with_dict(chunks[0], skip_normalize=True)
+            ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+            phonemes = phonemize_with_dict(chunks[0], skip_normalize=True, skip_adaptation=True)
             if self._is_quantized_model:
                 output_str = self._infer_ggml(ref_codes, ref_phonemes, phonemes, temperature, top_k)
             else:
@@ -204,19 +237,38 @@ class VieNeuTTS(BaseVieneuTTS):
             temperature=temperature,
             top_k=top_k,
             skip_normalize=True,
-            apply_watermark=False
+            apply_watermark=False,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
         )
-        final_wav = join_audio_chunks(all_wavs, self.sample_rate, silence_p, crossfade_p)
+        final_wav = join_audio_chunks(
+            all_wavs,
+            self.sample_rate,
+            silence_p,
+            effective_crossfade,
+            pause_plan=pause_plan,
+        )
         return self._apply_watermark(final_wav)
 
-    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True) -> List[np.ndarray]:
+    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> List[np.ndarray]:
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
 
-        if not skip_normalize:
-            texts = [self.normalizer.normalize(t) for t in texts]
+        texts = self._normalize_texts(
+            texts,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        ref_phonemes = self.get_ref_phonemes(ref_text)
-        chunk_phonemes = phonemize_batch(texts, skip_normalize=True)
+        ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+        chunk_phonemes = phonemize_batch(texts, skip_normalize=True, skip_adaptation=True)
 
         all_wavs = []
         # If model is GGUF, we still process sequentially for now as llama-cpp-python batching for TTS is complex
@@ -266,20 +318,38 @@ class VieNeuTTS(BaseVieneuTTS):
 
         return all_wavs
 
-    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> Generator[np.ndarray, None, None]:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        chunks = split_text_into_chunks(
+            text,
+            max_chars=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
         if not chunks:
             return
 
         # Pre-phonemize all inputs for performance
-        ref_phonemes = self.get_ref_phonemes(ref_text)
-        chunk_phonemes = phonemize_batch(chunks, skip_normalize=True)
+        ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+        chunk_phonemes = phonemize_batch(chunks, skip_normalize=True, skip_adaptation=True)
 
         for phonemes in chunk_phonemes:
             if self._is_quantized_model:

@@ -29,6 +29,13 @@ _MULTI_PUNCT = re.compile(r'([.!?])\s*[.!?]+')
 class PhoneChunk:
     text: str
     is_sentence_end: bool  # True = kết thúc câu thật | False = cắt nhân tạo
+    is_paragraph_end: bool = False
+
+
+@dataclass
+class TextChunk:
+    text: str
+    pause_after: float = 0.0
 
 # ─── Audio utils ─────────────────────────────────────────────────────────────
 
@@ -37,6 +44,7 @@ def join_audio_chunks(
     sr: int,
     silence_p: float = 0.0,
     crossfade_p: float = 0.0,
+    pause_plan: Optional[List[float]] = None,
 ) -> np.ndarray:
     if not chunks:
         return np.array([], dtype=np.float32)
@@ -49,8 +57,15 @@ def join_audio_chunks(
 
     for i in range(1, len(chunks)):
         next_chunk = chunks[i]
-        if silence_samples > 0:
-            silence   = np.zeros(silence_samples, dtype=np.float32)
+        pause_samples = None
+        if pause_plan is not None and i - 1 < len(pause_plan):
+            pause_samples = int(sr * max(0.0, pause_plan[i - 1]))
+
+        if pause_samples is not None and pause_samples > 0:
+            silence = np.zeros(pause_samples, dtype=np.float32)
+            final_wav = np.concatenate([final_wav, silence, next_chunk])
+        elif silence_samples > 0:
+            silence = np.zeros(silence_samples, dtype=np.float32)
             final_wav = np.concatenate([final_wav, silence, next_chunk])
         elif crossfade_samples > 0:
             overlap = min(len(final_wav), len(next_chunk), crossfade_samples)
@@ -70,11 +85,23 @@ def join_audio_chunks(
 
 def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
     """Split raw text (chưa phonemize) thành chunks <= max_chars."""
+    return [chunk.text for chunk in split_text_into_chunks_with_pauses(text, max_chars=max_chars)]
+
+
+def split_text_into_chunks_with_pauses(
+    text: str,
+    max_chars: int = 256,
+    continuation_pause: float = 0.0,
+    sentence_pause: float = 0.15,
+    strong_pause: float = 0.2,
+    paragraph_pause: float = 0.25,
+) -> List[TextChunk]:
+    """Split raw text into chunks and attach a per-chunk pause plan."""
     if not text:
         return []
 
     paragraphs   = RE_NEWLINE.split(text.strip())
-    final_chunks: List[str] = []
+    final_chunks: List[TextChunk] = []
 
     for para in paragraphs:
         para = para.strip()
@@ -82,7 +109,8 @@ def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
             continue
 
         sentences = RE_SENTENCE_END.split(para)
-        buffer    = ""
+        paragraph_chunks: List[str] = []
+        buffer = ""
 
         for sentence in sentences:
             sentence = sentence.strip()
@@ -91,7 +119,7 @@ def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
 
             if len(sentence) > max_chars:
                 if buffer:
-                    final_chunks.append(buffer)
+                    paragraph_chunks.append(buffer)
                     buffer = ""
 
                 sub_parts = RE_MINOR_PUNCT.split(sentence)
@@ -103,28 +131,84 @@ def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
                         buffer = (buffer + ' ' + part) if buffer else part
                     else:
                         if buffer:
-                            final_chunks.append(buffer)
+                            paragraph_chunks.append(buffer)
                         buffer = part
                         if len(buffer) > max_chars:
                             words, current = buffer.split(), ""
                             for word in words:
                                 if current and len(current) + 1 + len(word) > max_chars:
-                                    final_chunks.append(current)
+                                    paragraph_chunks.append(current)
                                     current = word
                                 else:
                                     current = (current + ' ' + word) if current else word
                             buffer = current
             else:
                 if buffer and len(buffer) + 1 + len(sentence) > max_chars:
-                    final_chunks.append(buffer)
+                    paragraph_chunks.append(buffer)
                     buffer = sentence
                 else:
                     buffer = (buffer + ' ' + sentence) if buffer else sentence
 
         if buffer:
-            final_chunks.append(buffer)
+            paragraph_chunks.append(buffer)
 
-    return [c.strip() for c in final_chunks if c.strip()]
+        if not paragraph_chunks:
+            continue
+
+        last_idx = len(paragraph_chunks) - 1
+        for idx, chunk in enumerate(paragraph_chunks):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+
+            if idx == last_idx:
+                pause_after = _text_chunk_pause(
+                    chunk,
+                    continuation_pause=continuation_pause,
+                    sentence_pause=sentence_pause,
+                    strong_pause=strong_pause,
+                    paragraph_pause=paragraph_pause,
+                    is_paragraph_end=True,
+                )
+            else:
+                pause_after = _text_chunk_pause(
+                    chunk,
+                    continuation_pause=continuation_pause,
+                    sentence_pause=sentence_pause,
+                    strong_pause=strong_pause,
+                    paragraph_pause=paragraph_pause,
+                    is_paragraph_end=False,
+                )
+            final_chunks.append(TextChunk(text=chunk, pause_after=pause_after))
+
+    return final_chunks
+
+
+def _text_chunk_pause(
+    chunk: str,
+    continuation_pause: float,
+    sentence_pause: float,
+    strong_pause: float,
+    paragraph_pause: float,
+    is_paragraph_end: bool,
+) -> float:
+    stripped = chunk.strip()
+    if not stripped:
+        return 0.0
+
+    tail = stripped[-1]
+    if tail in "!?":
+        base_pause = strong_pause
+    elif tail in ".…":
+        base_pause = sentence_pause
+    elif tail in ",;:":
+        base_pause = continuation_pause
+    else:
+        base_pause = continuation_pause
+
+    if is_paragraph_end:
+        return max(base_pause, paragraph_pause)
+    return base_pause
 
 # ─── v2 helpers ──────────────────────────────────────────────────────────────
 
@@ -220,6 +304,7 @@ def _split_sentence(sent: str, max_chunk_size: int) -> List[PhoneChunk]:
         PhoneChunk(
             text=chunk + (punct if i == last_idx else '.'),
             is_sentence_end=(i == last_idx),
+            is_paragraph_end=False,
         )
         for i, chunk in enumerate(sub_chunks)
         if chunk
@@ -247,10 +332,13 @@ def split_into_chunks_v2(
         para = para.strip()
         if not para:
             continue
+        para_start = len(raw_parts)
         for sent in RE_SENTENCE_FINDALL.findall(para):
             sent = sent.strip()
             if sent:
                 raw_parts.extend(_split_sentence(sent, max_chunk_size))
+        if len(raw_parts) > para_start:
+            raw_parts[-1].is_paragraph_end = True
 
     if not raw_parts:
         return []
@@ -263,7 +351,11 @@ def split_into_chunks_v2(
             nxt       = raw_parts[i + 1]
             candidate = cur.text.rstrip('.!?').rstrip() + ' ' + nxt.text
             if len(candidate) <= max_chunk_size:
-                cur = PhoneChunk(text=candidate, is_sentence_end=nxt.is_sentence_end)
+                cur = PhoneChunk(
+                    text=candidate,
+                    is_sentence_end=nxt.is_sentence_end,
+                    is_paragraph_end=nxt.is_paragraph_end,
+                )
                 i += 1
             else:
                 break
@@ -274,14 +366,23 @@ def split_into_chunks_v2(
         last      = merged.pop()
         candidate = merged[-1].text.rstrip('.!?').rstrip() + ' ' + last.text
         if len(candidate) <= max_chunk_size:
-            merged[-1] = PhoneChunk(text=candidate, is_sentence_end=last.is_sentence_end)
+            merged[-1] = PhoneChunk(
+                text=candidate,
+                is_sentence_end=last.is_sentence_end,
+                is_paragraph_end=last.is_paragraph_end,
+            )
         else:
             merged.append(last)
 
     return merged
 
 
-def get_silence_duration_v2(chunk: PhoneChunk) -> float:
+def get_silence_duration_v2(
+    chunk: PhoneChunk,
+    pause_scale: float = 1.0,
+    continuation_pause: float = 0.0,
+    paragraph_pause: float = 0.0,
+) -> float:
     """
     Silence sau chunk (giây).
       is_sentence_end=False → 0.0s
@@ -289,8 +390,14 @@ def get_silence_duration_v2(chunk: PhoneChunk) -> float:
       kết thúc '.' → 0.3s
     """
     if not chunk.is_sentence_end:
-        return 0.0
-    return 0.4 if chunk.text.strip()[-1] in '!?' else 0.3
+        base_pause = continuation_pause
+    else:
+        base_pause = 0.4 if chunk.text.strip()[-1] in '!?' else 0.3
+
+    scaled_pause = base_pause * pause_scale
+    if chunk.is_paragraph_end:
+        return max(scaled_pause, paragraph_pause)
+    return scaled_pause
 
 # ─── Misc ────────────────────────────────────────────────────────────────────
 

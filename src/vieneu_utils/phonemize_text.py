@@ -6,7 +6,11 @@ which provides a unified, tested, and maintained Vietnamese G2P pipeline.
 import functools
 import logging
 from sea_g2p import SEAPipeline, G2P, Normalizer
-from .tech_text import rewrite_mixed_tech_text
+from .text_adaptation import (
+    DEFAULT_ACRONYM_MODE,
+    DEFAULT_NARRATION_STRENGTH,
+    adapt_text_for_tts,
+)
 
 logger = logging.getLogger("Vieneu.Phonemizer")
 
@@ -19,8 +23,29 @@ _normalizer: Normalizer = None
 
 
 class TechAwareNormalizer:
-    def normalize(self, text: str) -> str:
-        return normalize_text(text)
+    def __init__(
+        self,
+        acronym_mode: str = DEFAULT_ACRONYM_MODE,
+        narration_mode: bool = False,
+        narration_strength: str = DEFAULT_NARRATION_STRENGTH,
+    ):
+        self.acronym_mode = acronym_mode
+        self.narration_mode = narration_mode
+        self.narration_strength = narration_strength
+
+    def normalize(
+        self,
+        text: str,
+        acronym_mode: str | None = None,
+        narration_mode: bool | None = None,
+        narration_strength: str | None = None,
+    ) -> str:
+        return normalize_text(
+            text,
+            acronym_mode=acronym_mode or self.acronym_mode,
+            narration_mode=self.narration_mode if narration_mode is None else narration_mode,
+            narration_strength=narration_strength or self.narration_strength,
+        )
 
 def _get_pipeline() -> SEAPipeline:
     global _pipeline
@@ -45,25 +70,58 @@ def _get_normalizer() -> Normalizer:
 # ---------------------------------------------------------------------------
 
 @functools.lru_cache(maxsize=1024)
-def _phonemize_cached(text: str) -> str:
+def _phonemize_cached(
+    text: str,
+    acronym_mode: str,
+    narration_mode: bool,
+    narration_strength: str,
+) -> str:
     """Cached single-text phonemization (normalize + G2P)."""
-    return _get_pipeline().run(rewrite_mixed_tech_text(text))
+    return _get_pipeline().run(
+        adapt_text_for_tts(
+            text,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+    )
 
 
-def phonemize_text(text: str) -> str:
+def phonemize_text(
+    text: str,
+    acronym_mode: str = "clear",
+    narration_mode: bool = False,
+    narration_strength: str = DEFAULT_NARRATION_STRENGTH,
+) -> str:
     """Normalize and phonemize a single Vietnamese/bilingual text string."""
-    return _phonemize_cached(text)
+    return _phonemize_cached(text, acronym_mode, narration_mode, narration_strength)
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(
+    text: str,
+    acronym_mode: str = "clear",
+    narration_mode: bool = False,
+    narration_strength: str = DEFAULT_NARRATION_STRENGTH,
+) -> str:
     """Rewrite common tech terms before the Vietnamese normalizer runs."""
-    return _get_normalizer().normalize(rewrite_mixed_tech_text(text))
+    return _get_normalizer().normalize(
+        adapt_text_for_tts(
+            text,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+    )
 
 
 def phonemize_batch(
     texts: list[str],
     skip_normalize: bool = False,
     phoneme_dict: dict = None,
+    skip_adaptation: bool = False,
+    acronym_mode: str = "clear",
+    narration_mode: bool = False,
+    narration_strength: str = DEFAULT_NARRATION_STRENGTH,
     **kwargs,
 ) -> list[str]:
     """
@@ -79,15 +137,33 @@ def phonemize_batch(
     if not texts:
         return []
 
-    rewritten = [rewrite_mixed_tech_text(text) for text in texts]
+    prepared = texts if skip_adaptation else [
+        adapt_text_for_tts(
+            text,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        for text in texts
+    ]
     g2p = _get_g2p()
 
     if skip_normalize:
         # Texts are pre-normalized — only run the G2P layer
-        return g2p.phonemize_batch(rewritten, phoneme_dict=phoneme_dict)
+        return g2p.phonemize_batch(prepared, phoneme_dict=phoneme_dict)
     else:
         # Full pipeline: normalize then G2P
-        normalized = [normalize_text(t) for t in texts]
+        normalized = [
+            normalize_text(
+                t,
+                acronym_mode=acronym_mode,
+                narration_mode=narration_mode,
+                narration_strength=narration_strength,
+            )
+            if skip_adaptation
+            else _get_normalizer().normalize(prepared_text)
+            for t, prepared_text in zip(texts, prepared)
+        ]
         return g2p.phonemize_batch(normalized, phoneme_dict=phoneme_dict)
 
 
@@ -95,6 +171,10 @@ def phonemize_with_dict(
     text: str,
     phoneme_dict: dict = None,
     skip_normalize: bool = False,
+    skip_adaptation: bool = False,
+    acronym_mode: str = "clear",
+    narration_mode: bool = False,
+    narration_strength: str = DEFAULT_NARRATION_STRENGTH,
 ) -> str:
     """
     Phonemize a single text, optionally with a custom word→phoneme mapping.
@@ -105,11 +185,28 @@ def phonemize_with_dict(
     if phoneme_dict is not None:
         # Custom dict supplied — skip cache to avoid cross-contamination
         return phonemize_batch(
-            [text], skip_normalize=skip_normalize, phoneme_dict=phoneme_dict
+            [text],
+            skip_normalize=skip_normalize,
+            phoneme_dict=phoneme_dict,
+            skip_adaptation=skip_adaptation,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
         )[0]
     if skip_normalize:
-        return _get_g2p().phonemize_batch([rewrite_mixed_tech_text(text)])[0]
-    return _phonemize_cached(text)
+        if skip_adaptation:
+            return _get_g2p().phonemize_batch([text])[0]
+        return _get_g2p().phonemize_batch(
+            [
+                adapt_text_for_tts(
+                    text,
+                    acronym_mode=acronym_mode,
+                    narration_mode=narration_mode,
+                    narration_strength=narration_strength,
+                )
+            ]
+        )[0]
+    return _phonemize_cached(text, acronym_mode, narration_mode, narration_strength)
 
 
 # ---------------------------------------------------------------------------

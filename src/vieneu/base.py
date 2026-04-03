@@ -6,6 +6,12 @@ import numpy as np
 import logging
 from huggingface_hub import hf_hub_download
 from vieneu_utils.phonemize_text import TechAwareNormalizer
+from vieneu_utils.text_adaptation import (
+    DEFAULT_ACRONYM_MODE,
+    DEFAULT_NARRATION_STRENGTH,
+    get_effective_max_chars,
+    resolve_text_adaptation_options,
+)
 
 # Configure logging
 logger = logging.getLogger("Vieneu")
@@ -24,8 +30,8 @@ class BaseVieneuTTS(ABC):
         self.assets_dir = Path(__file__).parent / "assets"
         self._preset_voices: Dict[str, Any] = {}
         self._default_voice: Optional[str] = None
-        self.normalizer = TechAwareNormalizer()
-        self._ref_phoneme_cache: Dict[str, str] = {}
+        self.normalizer = TechAwareNormalizer(acronym_mode=DEFAULT_ACRONYM_MODE)
+        self._ref_phoneme_cache: Dict[tuple[str, str], str] = {}
 
         # Watermarker placeholder
         self.watermarker = None
@@ -225,14 +231,85 @@ class BaseVieneuTTS(ABC):
 
         return {"codes": codes, "text": voice_data["text"]}
 
-    def get_ref_phonemes(self, ref_text: str) -> str:
+    def _resolve_text_options(
+        self,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: Optional[str] = None,
+    ):
+        return resolve_text_adaptation_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+
+    def _normalize_text(
+        self,
+        text: str,
+        skip_normalize: bool = False,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: Optional[str] = None,
+    ) -> str:
+        if skip_normalize:
+            return text
+        return self.normalizer.normalize(
+            text,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+
+    def _normalize_texts(
+        self,
+        texts: List[str],
+        skip_normalize: bool = False,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: Optional[str] = None,
+    ) -> List[str]:
+        if skip_normalize:
+            return texts
+        return [
+            self.normalizer.normalize(
+                text,
+                acronym_mode=acronym_mode,
+                narration_mode=narration_mode,
+                narration_strength=narration_strength,
+            )
+            for text in texts
+        ]
+
+    def _effective_max_chars(
+        self,
+        max_chars: int,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: Optional[str] = None,
+    ) -> int:
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        return get_effective_max_chars(max_chars, options)
+
+    def get_ref_phonemes(
+        self,
+        ref_text: str,
+        acronym_mode: Optional[str] = None,
+    ) -> str:
         """
         Get phonemized version of reference text, using cache if available.
         """
-        if ref_text not in self._ref_phoneme_cache:
+        key = (ref_text, (acronym_mode or DEFAULT_ACRONYM_MODE).lower())
+        if key not in self._ref_phoneme_cache:
             from vieneu_utils.phonemize_text import phonemize_with_dict
-            self._ref_phoneme_cache[ref_text] = phonemize_with_dict(ref_text)
-        return self._ref_phoneme_cache[ref_text]
+            self._ref_phoneme_cache[key] = phonemize_with_dict(
+                ref_text,
+                acronym_mode=key[1],
+            )
+        return self._ref_phoneme_cache[key]
 
     def save(self, audio: np.ndarray, output_path: Union[str, Path]) -> None:
         """Save audio waveform to a file."""

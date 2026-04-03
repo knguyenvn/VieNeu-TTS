@@ -10,8 +10,9 @@ import numpy as np
 import queue
 import threading
 import yaml
-from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks, env_bool, split_into_chunks_v2, get_silence_duration_v2
+from vieneu_utils.core_utils import split_text_into_chunks, split_text_into_chunks_with_pauses, join_audio_chunks, env_bool, split_into_chunks_v2, get_silence_duration_v2
 from vieneu_utils.phonemize_text import phonemize_with_dict, TechAwareNormalizer
+from vieneu_utils.text_adaptation import get_narration_profile, resolve_text_adaptation_options
 from functools import lru_cache
 import gc
 
@@ -672,9 +673,31 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
 
 # --- 2. DATA & HELPERS ---
 
+def _resolve_generation_style(acronym_style: str, narration_style: str):
+    acronym_map = {
+        "Tự nhiên": "natural",
+        "Rõ từng chữ": "clear",
+        "Việt hóa nhanh": "vi",
+    }
+    narration_map = {
+        "Tắt": (False, "balanced"),
+        "Tự nhiên": (True, "balanced"),
+        "Biểu cảm": (True, "expressive"),
+        "Điện ảnh": (True, "cinematic"),
+    }
+    acronym_mode = acronym_map.get(acronym_style, "natural")
+    narration_mode, narration_strength = narration_map.get(narration_style, (False, "balanced"))
+    options = resolve_text_adaptation_options(
+        acronym_mode=acronym_mode,
+        narration_mode=narration_mode,
+        narration_strength=narration_strength,
+    )
+    return options, get_narration_profile(options)
+
+
 def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: str, 
                       mode_tab: str, generation_mode: str, use_batch: bool, max_batch_size_run: int,
-                      temperature: float, max_chars_chunk: int):
+                      temperature: float, max_chars_chunk: int, acronym_style: str, narration_style: str):
     """Synthesis with optimization support and max batch size control"""
     global tts, current_backbone, current_codec, model_loaded, using_lmdeploy
     
@@ -687,6 +710,7 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
         return
     
     raw_text = text.strip()
+    style_options, narration_profile = _resolve_generation_style(acronym_style, narration_style)
     
     codec_config = CODEC_CONFIGS[current_codec]
     use_preencoded = codec_config['use_preencoded']
@@ -735,15 +759,43 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
     if generation_mode == "Standard (Một lần)":
         backend_name = "LMDeploy" if using_lmdeploy else "Standard"
 
-        normalized_text = _text_normalizer.normalize(raw_text)
+        effective_max_chars = (
+            tts._effective_max_chars(
+                max_chars_chunk,
+                acronym_mode=style_options.acronym_mode,
+                narration_mode=style_options.narration_mode,
+                narration_strength=style_options.narration_strength,
+            )
+            if hasattr(tts, "_effective_max_chars")
+            else max_chars_chunk
+        )
+        normalized_text = _text_normalizer.normalize(
+            raw_text,
+            acronym_mode=style_options.acronym_mode,
+            narration_mode=style_options.narration_mode,
+            narration_strength=style_options.narration_strength,
+        )
         is_v2_turbo = "v2-Turbo" in (current_backbone or "")
+        pause_plan = None
         
         if is_v2_turbo:
             # Phoneme-based splitting for accurate progress reporting
-            phonemes = phonemize_with_dict(normalized_text, skip_normalize=True)
-            text_chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars_chunk)
+            phonemes = phonemize_with_dict(normalized_text, skip_normalize=True, skip_adaptation=True)
+            text_chunks = split_into_chunks_v2(phonemes, max_chunk_size=effective_max_chars)
         else:
-            text_chunks = split_text_into_chunks(normalized_text, max_chars=max_chars_chunk)
+            if narration_profile is not None:
+                planned_chunks = split_text_into_chunks_with_pauses(
+                    normalized_text,
+                    max_chars=effective_max_chars,
+                    continuation_pause=narration_profile.continuation_pause,
+                    sentence_pause=narration_profile.sentence_pause,
+                    strong_pause=narration_profile.strong_pause,
+                    paragraph_pause=narration_profile.paragraph_pause,
+                )
+                text_chunks = [chunk.text for chunk in planned_chunks]
+                pause_plan = [chunk.pause_after for chunk in planned_chunks[:-1]]
+            else:
+                text_chunks = split_text_into_chunks(normalized_text, max_chars=effective_max_chars)
             
         total_chunks = len(text_chunks)
 
@@ -772,16 +824,24 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         chunk.text, 
                         ref_codes=ref_codes, 
                         temperature=temperature,
-                        max_chars=max_chars_chunk,
+                        max_chars=effective_max_chars,
                         skip_normalize=True,
-                        skip_phonemize=True
+                        skip_phonemize=True,
+                        acronym_mode=style_options.acronym_mode,
+                        narration_mode=style_options.narration_mode,
+                        narration_strength=style_options.narration_strength,
                     )
                     
                     if chunk_wav is not None and len(chunk_wav) > 0:
                         all_wavs.append(chunk_wav)
                         # Add silence between Gradio-level chunks for Turbo
                         if i < total_chunks - 1:
-                            sil_dur = get_silence_duration_v2(chunk)
+                            sil_dur = get_silence_duration_v2(
+                                chunk,
+                                pause_scale=narration_profile.turbo_pause_scale if narration_profile is not None else 1.0,
+                                continuation_pause=narration_profile.continuation_pause if narration_profile is not None else 0.0,
+                                paragraph_pause=narration_profile.paragraph_pause if narration_profile is not None else 0.0,
+                            )
                             sil_wav = np.zeros(int(sr * sil_dur), dtype=np.float32)
                             all_wavs.append(sil_wav)
             
@@ -796,7 +856,10 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                     ref_text=ref_text_raw,
                     max_batch_size=max_batch_size_run,
                     temperature=temperature,
-                    skip_normalize=True
+                    skip_normalize=True,
+                    acronym_mode=style_options.acronym_mode,
+                    narration_mode=style_options.narration_mode,
+                    narration_strength=style_options.narration_strength,
                 )
                 for chunk_wav in chunk_wavs:
                     if chunk_wav is not None and len(chunk_wav) > 0:
@@ -811,8 +874,11 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         ref_codes=ref_codes, 
                         ref_text=ref_text_raw,
                         temperature=temperature,
-                        max_chars=max_chars_chunk,
-                        skip_normalize=True
+                        max_chars=effective_max_chars,
+                        skip_normalize=True,
+                        acronym_mode=style_options.acronym_mode,
+                        narration_mode=style_options.narration_mode,
+                        narration_strength=style_options.narration_strength,
                     )
                     if chunk_wav is not None and len(chunk_wav) > 0:
                         all_wavs.append(chunk_wav)
@@ -826,7 +892,13 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
             # Use utility function for joining with silence/crossfade
             # Default silence=0.15s to match SDK
             silence_p = 0.15 if not is_v2_turbo else 0.0 # Turbo adds silence internally
-            final_wav = join_audio_chunks(all_wavs, sr=sr, silence_p=silence_p)
+            final_wav = join_audio_chunks(
+                all_wavs,
+                sr=sr,
+                silence_p=silence_p,
+                crossfade_p=narration_profile.crossfade if narration_profile is not None and not is_v2_turbo else 0.0,
+                pause_plan=pause_plan,
+            )
             
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                 sf.write(tmp.name, final_wav, sr)
@@ -876,13 +948,28 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
         error_event = threading.Event()
         error_msg = ""
         
-        normalized_text = _text_normalizer.normalize(raw_text)
+        effective_max_chars = (
+            tts._effective_max_chars(
+                max_chars_chunk,
+                acronym_mode=style_options.acronym_mode,
+                narration_mode=style_options.narration_mode,
+                narration_strength=style_options.narration_strength,
+            )
+            if hasattr(tts, "_effective_max_chars")
+            else max_chars_chunk
+        )
+        normalized_text = _text_normalizer.normalize(
+            raw_text,
+            acronym_mode=style_options.acronym_mode,
+            narration_mode=style_options.narration_mode,
+            narration_strength=style_options.narration_strength,
+        )
         is_v2_turbo = "v2-Turbo" in (current_backbone or "")
         if is_v2_turbo:
-            phonemes = phonemize_with_dict(normalized_text, skip_normalize=True)
-            text_chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars_chunk)
+            phonemes = phonemize_with_dict(normalized_text, skip_normalize=True, skip_adaptation=True)
+            text_chunks = split_into_chunks_v2(phonemes, max_chunk_size=effective_max_chars)
         else:
-            text_chunks = split_text_into_chunks(normalized_text, max_chars=max_chars_chunk)
+            text_chunks = split_text_into_chunks(normalized_text, max_chars=effective_max_chars)
         
         def producer_thread():
             nonlocal error_msg
@@ -895,9 +982,12 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                             chunk_text, 
                             ref_codes=ref_codes, 
                             temperature=temperature,
-                            max_chars=max_chars_chunk,
+                            max_chars=effective_max_chars,
                             skip_normalize=True,
-                            skip_phonemize=True
+                            skip_phonemize=True,
+                            acronym_mode=style_options.acronym_mode,
+                            narration_mode=style_options.narration_mode,
+                            narration_strength=style_options.narration_strength,
                         )
                     else:
                         stream_gen = tts.infer_stream(
@@ -905,8 +995,11 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                             ref_codes=ref_codes, 
                             ref_text=ref_text_raw,
                             temperature=temperature,
-                            max_chars=max_chars_chunk,
-                            skip_normalize=True
+                            max_chars=effective_max_chars,
+                            skip_normalize=True,
+                            acronym_mode=style_options.acronym_mode,
+                            narration_mode=style_options.narration_mode,
+                            narration_strength=style_options.narration_strength,
                         )
                     
                     for part_idx, audio_part in enumerate(stream_gen):
@@ -943,7 +1036,12 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                             
                     # Add silence between chunks for Turbo v2
                     if is_v2_turbo and i < len(text_chunks) - 1:
-                        sil_dur = get_silence_duration_v2(chunk_text)
+                        sil_dur = get_silence_duration_v2(
+                            chunk_text,
+                            pause_scale=narration_profile.turbo_pause_scale if narration_profile is not None else 1.0,
+                            continuation_pause=narration_profile.continuation_pause if narration_profile is not None else 0.0,
+                            paragraph_pause=narration_profile.paragraph_pause if narration_profile is not None else 0.0,
+                        )
                         sil_wav = np.zeros(int(sr * sil_dur), dtype=np.float32)
                         audio_queue.put((sr, sil_wav))
                 
@@ -1358,6 +1456,19 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             label="📝 Max Chars per Chunk",
                             info="Độ dài tối đa mỗi đoạn xử lý."
                         )
+                    with gr.Row():
+                        acronym_style_select = gr.Dropdown(
+                            choices=["Tự nhiên", "Rõ từng chữ", "Việt hóa nhanh"],
+                            value="Tự nhiên",
+                            label="🔤 Cách đọc từ viết tắt",
+                            info="Tự nhiên: đọc acronym liền mạch hơn. Rõ từng chữ: spell rõ từng ký tự."
+                        )
+                        narration_style_select = gr.Dropdown(
+                            choices=["Tắt", "Tự nhiên", "Biểu cảm", "Điện ảnh"],
+                            value="Tắt",
+                            label="📚 Storytelling",
+                            info="Tăng nhịp ngắt câu và nhấn nhá cho nội dung dài hoặc dạng kể chuyện."
+                        )
                 
                 # State to track current mode (replaces unreliable Textbox/Tabs input)
                 current_mode_state = gr.State("preset_mode")
@@ -1509,7 +1620,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             fn=synthesize_speech,
             inputs=[text_input, voice_select, custom_audio, custom_text, current_mode_state, 
                     generation_mode, use_batch, max_batch_size_run,
-                    temperature_slider, max_chars_chunk_slider],
+                    temperature_slider, max_chars_chunk_slider, acronym_style_select, narration_style_select],
             outputs=[audio_output, status_output]
         )
         

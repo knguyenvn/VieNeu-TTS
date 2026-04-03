@@ -8,7 +8,8 @@ from collections import defaultdict
 from .base import BaseVieneuTTS
 from .utils import _compile_codec_with_triton, extract_speech_ids, _linear_overlap_add
 from vieneu_utils.phonemize_text import phonemize_batch
-from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks
+from vieneu_utils.core_utils import split_text_into_chunks, split_text_into_chunks_with_pauses, join_audio_chunks
+from vieneu_utils.text_adaptation import get_narration_profile
 
 logger = logging.getLogger("Vieneu.Fast")
 
@@ -122,17 +123,49 @@ class FastVieNeuTTS(BaseVieneuTTS):
         return recon[0, 0, :]
 
 
-    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> np.ndarray:
+    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> np.ndarray:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
         self.gen_config.temperature = temperature
         self.gen_config.top_k = top_k
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        pause_plan = None
+        effective_crossfade = crossfade_p
+        if profile is not None:
+            planned_chunks = split_text_into_chunks_with_pauses(
+                text,
+                max_chars=effective_max_chars,
+                continuation_pause=profile.continuation_pause,
+                sentence_pause=max(silence_p, profile.sentence_pause),
+                strong_pause=max(silence_p * 1.5, profile.strong_pause),
+                paragraph_pause=max(silence_p * 2.0, profile.paragraph_pause),
+            )
+            chunks = [chunk.text for chunk in planned_chunks]
+            pause_plan = [chunk.pause_after for chunk in planned_chunks[:-1]]
+            effective_crossfade = max(crossfade_p, profile.crossfade)
+        else:
+            chunks = split_text_into_chunks(text, max_chars=effective_max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
 
@@ -142,23 +175,52 @@ class FastVieNeuTTS(BaseVieneuTTS):
             wav = self._decode(responses[0].text)
             wav = self._apply_watermark(wav)
         else:
-            all_wavs = self.infer_batch(chunks, ref_codes, ref_text, voice=voice, temperature=temperature, top_k=top_k, skip_normalize=True)
-            wav = join_audio_chunks(all_wavs, self.sample_rate, silence_p, crossfade_p)
+            all_wavs = self.infer_batch(
+                chunks,
+                ref_codes=ref_codes,
+                ref_text=ref_text,
+                voice=voice,
+                temperature=temperature,
+                top_k=top_k,
+                skip_normalize=True,
+                apply_watermark=False,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            wav = join_audio_chunks(
+                all_wavs,
+                self.sample_rate,
+                silence_p,
+                effective_crossfade,
+                pause_plan=pause_plan,
+            )
+            wav = self._apply_watermark(wav)
 
         return wav
 
-    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True, max_batch_size: Optional[int] = None) -> List[np.ndarray]:
+    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True, max_batch_size: Optional[int] = None, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> List[np.ndarray]:
 
-        if not skip_normalize:
-            texts = [self.normalizer.normalize(t) for t in texts]
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        texts = self._normalize_texts(
+            texts,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
         max_batch_size = max_batch_size or self.max_batch_size
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
 
         # Pre-phonemize all for performance
-        ref_phonemes = self.get_ref_phonemes(ref_text)
-        chunk_phonemes = phonemize_batch(texts, skip_normalize=True)
+        ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+        chunk_phonemes = phonemize_batch(texts, skip_normalize=True, skip_adaptation=True)
 
         self.gen_config.temperature = temperature
         self.gen_config.top_k = top_k
@@ -177,17 +239,35 @@ class FastVieNeuTTS(BaseVieneuTTS):
             all_wavs.extend(batch_wavs)
         return all_wavs
 
-    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> Generator[np.ndarray, None, None]:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
         self.gen_config.temperature = temperature
         self.gen_config.top_k = top_k
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        chunks = split_text_into_chunks(
+            text,
+            max_chars=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
         for chunk in chunks:
             yield from self._infer_stream_single(chunk, ref_codes, ref_text)
 

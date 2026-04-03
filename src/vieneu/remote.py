@@ -8,7 +8,8 @@ import logging
 from .base import BaseVieneuTTS
 from .utils import _linear_overlap_add
 from vieneu_utils.phonemize_text import phonemize_with_dict, phonemize_batch
-from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks
+from vieneu_utils.core_utils import split_text_into_chunks, split_text_into_chunks_with_pauses, join_audio_chunks
+from vieneu_utils.text_adaptation import get_narration_profile
 
 logger = logging.getLogger("Vieneu.Remote")
 
@@ -33,6 +34,7 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
             codec_device=codec_device
         )
 
+        self.streaming_overlap_frames = 1
         self.streaming_frames_per_chunk = 10
         self.streaming_lookforward = 5
         self.streaming_lookback = 50
@@ -43,14 +45,42 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
         pass
 
 
-    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, **kwargs) -> np.ndarray:
+    def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced", **kwargs) -> np.ndarray:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        if profile is not None:
+            planned_chunks = split_text_into_chunks_with_pauses(
+                text,
+                max_chars=effective_max_chars,
+                continuation_pause=profile.continuation_pause,
+                sentence_pause=max(silence_p, profile.sentence_pause),
+                strong_pause=max(silence_p * 1.5, profile.strong_pause),
+                paragraph_pause=max(silence_p * 2.0, profile.paragraph_pause),
+            )
+            chunks = [chunk.text for chunk in planned_chunks]
+        else:
+            chunks = split_text_into_chunks(text, max_chars=effective_max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
 
@@ -79,17 +109,37 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
         return asyncio.run(self.infer_async(
             text, ref_codes=ref_codes, ref_text=ref_text,
             max_chars=max_chars, silence_p=silence_p, crossfade_p=crossfade_p,
-            temperature=temperature, top_k=top_k, skip_normalize=True, apply_watermark=True
+            temperature=temperature, top_k=top_k, skip_normalize=True, apply_watermark=True,
+            acronym_mode=options.acronym_mode, narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength
         ))
 
-    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> Generator[np.ndarray, None, None]:
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        chunks = split_text_into_chunks(
+            text,
+            max_chars=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
         for chunk in chunks:
             yield from self._infer_stream_chunk(chunk, ref_codes, ref_text, temperature, top_k)
 
@@ -171,18 +221,50 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
             processed_recon = processed_recon[n_decoded_samples:]
             yield processed_recon
 
-    async def infer_async(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, session=None, skip_normalize: bool = False, apply_watermark: bool = True) -> np.ndarray:
+    async def infer_async(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, session=None, skip_normalize: bool = False, apply_watermark: bool = True, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> np.ndarray:
         try:
             import aiohttp
         except ImportError:
             raise ImportError("Async requires 'aiohttp'.")
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
 
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
+        text = self._normalize_text(
+            text,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
-        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        pause_plan = None
+        effective_crossfade = crossfade_p
+        if profile is not None:
+            planned_chunks = split_text_into_chunks_with_pauses(
+                text,
+                max_chars=effective_max_chars,
+                continuation_pause=profile.continuation_pause,
+                sentence_pause=max(silence_p, profile.sentence_pause),
+                strong_pause=max(silence_p * 1.5, profile.strong_pause),
+                paragraph_pause=max(silence_p * 2.0, profile.paragraph_pause),
+            )
+            chunks = [chunk.text for chunk in planned_chunks]
+            pause_plan = [chunk.pause_after for chunk in planned_chunks[:-1]]
+            effective_crossfade = max(crossfade_p, profile.crossfade)
+        else:
+            chunks = split_text_into_chunks(text, max_chars=effective_max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
 
@@ -194,7 +276,13 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
         try:
             tasks = [self._infer_chunk_async(session, chunk, ref_codes, ref_text, temperature, top_k) for chunk in chunks]
             wavs = await asyncio.gather(*tasks)
-            final_wav = join_audio_chunks(wavs, self.sample_rate, silence_p, crossfade_p)
+            final_wav = join_audio_chunks(
+                wavs,
+                self.sample_rate,
+                silence_p,
+                effective_crossfade,
+                pause_plan=pause_plan,
+            )
             if apply_watermark:
                 final_wav = self._apply_watermark(final_wav)
             return final_wav
@@ -202,12 +290,13 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
             if should_close_session:
                 await session.close()
 
-    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True) -> List[np.ndarray]:
+    def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> List[np.ndarray]:
         """Synchronous wrapper for async batch inference."""
         return asyncio.run(self.infer_batch_async(
             texts, ref_audio=ref_audio, ref_codes=ref_codes, ref_text=ref_text,
             voice=voice, temperature=temperature, top_k=top_k, skip_normalize=skip_normalize,
-            apply_watermark=apply_watermark
+            apply_watermark=apply_watermark, acronym_mode=acronym_mode,
+            narration_mode=narration_mode, narration_strength=narration_strength
         ))
 
     async def _infer_chunk_async(
@@ -242,27 +331,60 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
             logger.error(f"Error in async chunk: {e}")
             return np.array([], dtype=np.float32)
 
-    async def infer_batch_async(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, concurrency_limit: int = 50, skip_normalize: bool = False, apply_watermark: bool = True) -> List[np.ndarray]:
+    async def infer_batch_async(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, 'torch.Tensor']] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, concurrency_limit: int = 50, skip_normalize: bool = False, apply_watermark: bool = True, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced") -> List[np.ndarray]:
         try:
             import aiohttp
         except ImportError:
             raise ImportError("Async requires 'aiohttp'.")
 
-        if not skip_normalize:
-            texts = [self.normalizer.normalize(t) for t in texts]
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
+
+        texts = self._normalize_texts(
+            texts,
+            skip_normalize=skip_normalize,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
 
         ref_codes, ref_text = self._resolve_ref_voice(voice, ref_audio, ref_codes, ref_text)
 
         # Pre-phonemize all for performance
-        ref_phonemes = self.get_ref_phonemes(ref_text)
-        all_phonemes = phonemize_batch(texts, skip_normalize=True)
+        ref_phonemes = self.get_ref_phonemes(ref_text, acronym_mode=options.acronym_mode)
+        all_phonemes = phonemize_batch(texts, skip_normalize=True, skip_adaptation=True)
 
         sem = asyncio.Semaphore(concurrency_limit)
         async with aiohttp.ClientSession() as session:
             async def bounded_infer(text, ph):
                 async with sem:
                     # Split into chunks internally if needed
-                    chunks = split_text_into_chunks(text, max_chars=max_chars)
+                    pause_plan = None
+                    effective_crossfade = crossfade_p
+                    if profile is not None:
+                        planned_chunks = split_text_into_chunks_with_pauses(
+                            text,
+                            max_chars=effective_max_chars,
+                            continuation_pause=profile.continuation_pause,
+                            sentence_pause=max(silence_p, profile.sentence_pause),
+                            strong_pause=max(silence_p * 1.5, profile.strong_pause),
+                            paragraph_pause=max(silence_p * 2.0, profile.paragraph_pause),
+                        )
+                        chunks = [chunk.text for chunk in planned_chunks]
+                        pause_plan = [chunk.pause_after for chunk in planned_chunks[:-1]]
+                        effective_crossfade = max(crossfade_p, profile.crossfade)
+                    else:
+                        chunks = split_text_into_chunks(text, max_chars=effective_max_chars)
                     if not chunks: return np.array([], dtype=np.float32)
 
                     if len(chunks) == 1:
@@ -271,11 +393,17 @@ class RemoteVieNeuTTS(BaseVieneuTTS):
                         return wav
 
                     # Re-phonemize chunks if splitting happened
-                    chunk_phonemes = phonemize_batch(chunks, skip_normalize=True)
+                    chunk_phonemes = phonemize_batch(chunks, skip_normalize=True, skip_adaptation=True)
                     tasks = [self._infer_chunk_async(session, c, ref_codes, ref_text, temperature, top_k, ref_phonemes=ref_phonemes, chunk_phonemes=c_ph)
                             for c, c_ph in zip(chunks, chunk_phonemes)]
                     wavs = await asyncio.gather(*tasks)
-                    final_wav = join_audio_chunks(wavs, self.sample_rate, silence_p, crossfade_p)
+                    final_wav = join_audio_chunks(
+                        wavs,
+                        self.sample_rate,
+                        silence_p,
+                        effective_crossfade,
+                        pause_plan=pause_plan,
+                    )
                     if apply_watermark: final_wav = self._apply_watermark(final_wav)
                     return final_wav
 

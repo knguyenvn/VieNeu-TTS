@@ -7,6 +7,7 @@ from huggingface_hub import hf_hub_download
 from .base import BaseVieneuTTS
 from vieneu_utils.phonemize_text import phonemize_text
 from vieneu_utils.core_utils import split_into_chunks_v2, get_silence_duration_v2
+from vieneu_utils.text_adaptation import get_narration_profile
 from tqdm import tqdm
 import sys
 
@@ -249,11 +250,35 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
         skip_normalize: bool = False, 
         skip_phonemize: bool = False, 
         show_progress: bool = True,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: str = "balanced",
         **kwargs
     ) -> np.ndarray:
 
-        phonemes = phonemize_text(text) if not skip_phonemize else text
-        chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
+        effective_max_chars = self._effective_max_chars(
+            max_chars,
+            acronym_mode=options.acronym_mode,
+            narration_mode=options.narration_mode,
+            narration_strength=options.narration_strength,
+        )
+        phonemes = (
+            phonemize_text(
+                text,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            if not skip_phonemize
+            else text
+        )
+        chunks = split_into_chunks_v2(phonemes, max_chunk_size=effective_max_chars)
         
         if voice is None:
             voice = ref_codes
@@ -279,7 +304,12 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
             all_wavs.append(wav)
 
             if i < len(chunks) - 1:
-                silence_dur = get_silence_duration_v2(chunk)
+                silence_dur = get_silence_duration_v2(
+                    chunk,
+                    pause_scale=profile.turbo_pause_scale if profile is not None else 1.0,
+                    continuation_pause=profile.continuation_pause if profile is not None else 0.0,
+                    paragraph_pause=profile.paragraph_pause if profile is not None else 0.0,
+                )
                 if silence_dur > 0:
                     all_wavs.append(np.zeros(int(self.sample_rate * silence_dur), dtype=np.float32))
 
@@ -297,6 +327,9 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
         skip_normalize: bool = False, 
         skip_phonemize: bool = False, 
         apply_watermark: bool = True, 
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: str = "balanced",
         **kwargs
     ) -> List[np.ndarray]:
         """Batch inference for Turbo GPU."""
@@ -308,7 +341,22 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
             voice = self.get_preset_voice()
         voice_embedding = self._get_voice_params(voice)
 
-        chunk_phonemes = phonemize_batch(texts, skip_normalize=True) if not skip_phonemize else texts
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        chunk_phonemes = (
+            phonemize_batch(
+                texts,
+                skip_normalize=True,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            if not skip_phonemize
+            else texts
+        )
         
         all_wavs = []
         for i in range(0, len(texts), max_batch_size):
@@ -326,17 +374,20 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
                 # Standard sequential fallback for transformers
                 batch_wavs = [
                     self.infer(
-                        t, 
+                        ph,
                         voice=voice, 
                         ref_codes=ref_codes, 
                         temperature=temperature, 
                         top_k=top_k, 
                         skip_normalize=True, 
-                        skip_phonemize=True
-                    ) for t in batch_texts
+                        skip_phonemize=True,
+                        acronym_mode=options.acronym_mode,
+                        narration_mode=options.narration_mode,
+                        narration_strength=options.narration_strength,
+                    ) for ph in batch_ph
                 ]
             
-            if apply_watermark:
+            if apply_watermark and self.backend == "lmdeploy":
                 batch_wavs = [self._apply_watermark(w) for w in batch_wavs]
             all_wavs.extend(batch_wavs)
         
@@ -366,14 +417,40 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
         max_chars: int = 256,
         skip_normalize: bool = False,
         skip_phonemize: bool = False,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: str = "balanced",
         **kwargs
     ) -> Generator[np.ndarray, None, None]:
         """Streaming inference for Turbo GPU."""
         from vieneu_utils.phonemize_text import phonemize_text
         from vieneu_utils.core_utils import split_into_chunks_v2, get_silence_duration_v2
 
-        phonemes = phonemize_text(text) if not skip_phonemize else text
-        chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
+        phonemes = (
+            phonemize_text(
+                text,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            if not skip_phonemize
+            else text
+        )
+        chunks = split_into_chunks_v2(
+            phonemes,
+            max_chunk_size=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
         
         if voice is None:
             voice = ref_codes
@@ -397,7 +474,12 @@ class TurboGPUVieNeuTTS(BaseVieneuTTS):
             yield self._apply_watermark(wav)
 
             if i < len(chunks) - 1:
-                silence_dur = get_silence_duration_v2(chunk)
+                silence_dur = get_silence_duration_v2(
+                    chunk,
+                    pause_scale=profile.turbo_pause_scale if profile is not None else 1.0,
+                    continuation_pause=profile.continuation_pause if profile is not None else 0.0,
+                    paragraph_pause=profile.paragraph_pause if profile is not None else 0.0,
+                )
                 if silence_dur > 0:
                     yield np.zeros(int(self.sample_rate * silence_dur), dtype=np.float32)
 
@@ -435,12 +517,11 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         #   'mps'          -> 'cpu'   (llama-cpp uses Metal automatically via n_gpu_layers on macOS)
         #   anything else  -> 'cpu'
         _d = device.lower()
+        self._use_metal = False
         if _d in ("gpu", "cuda"):
             self.device = "cuda"
         elif _d == "mps":
-            # llama-cpp-python uses Metal natively on macOS with n_gpu_layers=-1.
-            # Treat as 'cpu' for the device string; Metal is enabled via n_gpu_layers.
-            logger.info("MPS requested: llama-cpp-python uses Metal natively via n_gpu_layers. Treating device as 'cpu'.")
+            self._use_metal = True
             self.device = "cpu"
         else:
             self.device = "cpu"
@@ -462,20 +543,23 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         logger.info(f"⏳ Downloading/Loading Turbo GGUF from: {backbone_repo}...")
         model_path = _resolve_model_asset(backbone_repo, backbone_filename, hf_token)
 
-        # 'cuda' -> offload all layers to GPU; 'cpu' -> CPU only
+        # 'cuda' -> offload all layers to GPU; explicit 'mps' -> Metal layers;
+        # plain 'cpu' -> keep model on CPU only.
         use_gpu = device == "cuda"
+        use_gpu_layers = use_gpu or self._use_metal
         
         self.backbone = Llama(
             model_path=model_path,
             n_ctx=self.max_context,
-            n_gpu_layers=-1,
+            n_gpu_layers=-1 if use_gpu_layers else 0,
             mlock=True,
             flash_attn=use_gpu,
             verbose=False,
             **kwargs # Allow user to pass n_threads, n_batch manually if needed
         )
                 
-        logger.info(f"✅ Turbo GGUF ready (GpuLayers: {'Metal' if sys.platform == 'darwin' else ('All' if use_gpu else 'None')})")
+        layer_mode = "Metal" if self._use_metal else ("All" if use_gpu else "None")
+        logger.info(f"✅ Turbo GGUF ready (GpuLayers: {layer_mode})")
 
     def _get_onnx_providers(self, device: str) -> list:
         """Return appropriate ONNX Runtime providers.
@@ -585,11 +669,37 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         skip_normalize: bool = False,
         skip_phonemize: bool = False,
         show_progress: bool = True,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: str = "balanced",
         **kwargs
     ) -> np.ndarray:
 
-        phonemes = phonemize_text(text) if not skip_phonemize else text
-        chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
+        phonemes = (
+            phonemize_text(
+                text,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            if not skip_phonemize
+            else text
+        )
+        chunks = split_into_chunks_v2(
+            phonemes,
+            max_chunk_size=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
         
         if not chunks:
             return np.array([], dtype=np.float32)
@@ -624,7 +734,12 @@ class TurboVieNeuTTS(BaseVieneuTTS):
             all_wavs.append(wav)
 
             if i < len(chunks) - 1:
-                silence_dur = get_silence_duration_v2(chunk)
+                silence_dur = get_silence_duration_v2(
+                    chunk,
+                    pause_scale=profile.turbo_pause_scale if profile is not None else 1.0,
+                    continuation_pause=profile.continuation_pause if profile is not None else 0.0,
+                    paragraph_pause=profile.paragraph_pause if profile is not None else 0.0,
+                )
                 if silence_dur > 0:
                     all_wavs.append(np.zeros(int(self.sample_rate * silence_dur), dtype=np.float32))
 
@@ -648,11 +763,37 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         max_chars: int = 256,
         skip_normalize: bool = False,
         skip_phonemize: bool = False,
+        acronym_mode: Optional[str] = None,
+        narration_mode: bool = False,
+        narration_strength: str = "balanced",
         **kwargs
     ) -> Generator[np.ndarray, None, None]:
-        phonemes = phonemize_text(text) if not skip_phonemize else text
+        options = self._resolve_text_options(
+            acronym_mode=acronym_mode,
+            narration_mode=narration_mode,
+            narration_strength=narration_strength,
+        )
+        profile = get_narration_profile(options)
+        phonemes = (
+            phonemize_text(
+                text,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            )
+            if not skip_phonemize
+            else text
+        )
 
-        chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
+        chunks = split_into_chunks_v2(
+            phonemes,
+            max_chunk_size=self._effective_max_chars(
+                max_chars,
+                acronym_mode=options.acronym_mode,
+                narration_mode=options.narration_mode,
+                narration_strength=options.narration_strength,
+            ),
+        )
 
         if voice is None:
             voice = ref_codes
@@ -680,12 +821,28 @@ class TurboVieNeuTTS(BaseVieneuTTS):
             yield self._apply_watermark(wav)
 
             if i < len(chunks) - 1:
-                silence_dur = get_silence_duration_v2(chunk)
+                silence_dur = get_silence_duration_v2(
+                    chunk,
+                    pause_scale=profile.turbo_pause_scale if profile is not None else 1.0,
+                    continuation_pause=profile.continuation_pause if profile is not None else 0.0,
+                    paragraph_pause=profile.paragraph_pause if profile is not None else 0.0,
+                )
                 if silence_dur > 0:
                     yield np.zeros(int(self.sample_rate * silence_dur), dtype=np.float32)
 
-    def infer_batch(self, texts: List[str], voice: Optional[Any] = None, ref_codes: Optional[Any] = None, apply_watermark: bool = True, **kwargs) -> List[np.ndarray]:
-        results = [self.infer(t, voice=voice, ref_codes=ref_codes, **kwargs) for t in texts]
+    def infer_batch(self, texts: List[str], voice: Optional[Any] = None, ref_codes: Optional[Any] = None, apply_watermark: bool = True, acronym_mode: Optional[str] = None, narration_mode: bool = False, narration_strength: str = "balanced", **kwargs) -> List[np.ndarray]:
+        results = [
+            self.infer(
+                t,
+                voice=voice,
+                ref_codes=ref_codes,
+                acronym_mode=acronym_mode,
+                narration_mode=narration_mode,
+                narration_strength=narration_strength,
+                **kwargs,
+            )
+            for t in texts
+        ]
         if apply_watermark:
             results = [self._apply_watermark(r) for r in results]
         return results

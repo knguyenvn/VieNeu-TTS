@@ -339,6 +339,9 @@ _EMAIL_LOCAL_SEPARATORS = {
     "_": "gạch dưới",
 }
 _DECIMAL_VALUE_RE = re.compile(r"^\d+\.\d+$")
+_EN_TAG_RE = re.compile(r"<en>.*?</en>")
+_SPACED_ACRONYM_RE = re.compile(r"(?<![A-Za-z0-9>])(?:[A-Z](?:\s+[A-Z]){1,})(?![A-Za-z0-9<])")
+_UPPER_ACRONYM_RE = re.compile(r"(?<![A-Za-z0-9>])([A-Z]{2,})(?![A-Za-z0-9<])")
 _DIGIT_WORDS = {
     "0": "zero",
     "1": "one",
@@ -350,6 +353,18 @@ _DIGIT_WORDS = {
     "7": "seven",
     "8": "eight",
     "9": "nine",
+}
+
+_VI_ACRONYM_REWRITES = {
+    "ai": "ây ai",
+    "api": "ây pi ai",
+    "cpu": "si pi diu",
+    "gpu": "gi pi diu",
+    "llm": "eo eo em",
+    "ui": "iu ai",
+    "url": "iu a eo",
+    "ux": "iu ích",
+    "vps": "vi pi ét",
 }
 _TEEN_WORDS = {
     10: "ten",
@@ -818,7 +833,43 @@ def _render_windows_path_token(token: str) -> str:
     return _collapse_spaces(" ".join(rendered_parts))
 
 
-def rewrite_mixed_tech_text(text: str) -> str:
+def _render_acronym_token(token: str, acronym_mode: str) -> str:
+    if acronym_mode == "clear":
+        return token
+    if acronym_mode == "vi":
+        vi_rendered = _VI_ACRONYM_REWRITES.get(token.lower())
+        if vi_rendered is not None:
+            return vi_rendered
+    return f"<en>{token}</en>"
+
+
+def _apply_acronym_mode(text: str, acronym_mode: str) -> str:
+    if acronym_mode == "clear":
+        return text
+
+    protected: list[str] = []
+
+    def protect(match: re.Match[str]) -> str:
+        protected.append(match.group(0))
+        return f"__vieneu_en_{len(protected) - 1}__"
+
+    def restore(match: re.Match[str]) -> str:
+        return protected[int(match.group(1))]
+
+    def replace_spaced(match: re.Match[str]) -> str:
+        letters = match.group(0).replace(" ", "")
+        return _render_acronym_token(letters, acronym_mode)
+
+    def replace_compact(match: re.Match[str]) -> str:
+        return _render_acronym_token(match.group(1), acronym_mode)
+
+    working = _EN_TAG_RE.sub(protect, text)
+    working = _SPACED_ACRONYM_RE.sub(replace_spaced, working)
+    working = _UPPER_ACRONYM_RE.sub(replace_compact, working)
+    return re.sub(r"__vieneu_en_(\d+)__", restore, working)
+
+
+def rewrite_mixed_tech_text(text: str, acronym_mode: str = "clear") -> str:
     """
     Rewrite common Vietnamese tech/code-switch tokens into forms that the
     bilingual phonemizer handles more naturally.
@@ -890,4 +941,5 @@ def rewrite_mixed_tech_text(text: str) -> str:
 
         return _normalize_segment_sequence(segments)
 
-    return _collapse_spaces(_ASCII_TOKEN_RE.sub(replace_token, text))
+    rewritten = _collapse_spaces(_ASCII_TOKEN_RE.sub(replace_token, text))
+    return _collapse_spaces(_apply_acronym_mode(rewritten, acronym_mode.lower()))
